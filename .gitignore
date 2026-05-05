@@ -1,0 +1,41 @@
+# ── Virtual Environment ──────────────────────────────────────────
+.venv/
+venv/
+env/
+
+# ── Python Cache ─────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# ── Environment Variables (secrets) ──────────────────────────────
+.env
+
+# ── Pickle / Model Artifacts (too large for GitHub) ──────────────
+pickle_files/
+
+# ── Dataset (too large for GitHub) ───────────────────────────────
+Datset/
+
+# ── Jupyter Notebook Checkpoints ─────────────────────────────────
+.ipynb_checkpoints/
+
+# ── macOS ────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ── IDE / Editor ─────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Distribution / Packaging ─────────────────────────────────────
+dist/
+build/
+*.egg-info/
+*.egg
