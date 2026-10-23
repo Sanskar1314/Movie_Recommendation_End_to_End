@@ -67,9 +67,14 @@ def load_artifacts(pickle_dir: str | None = None) -> None:
         tfidf_matrix = pickle.load(f)
     logger.info("  ✓ tfidf_matrix.pkl loaded — shape %s", tfidf_matrix.shape)
 
+    for column in ('vote_average', 'popularity'):
+        df[column] = pd.to_numeric(df[column], errors='coerce').replace([float('inf'), -float('inf')], 0).fillna(0)
+    for column in ('title', 'overview', 'genres', 'tagline'):
+        df[column] = df[column].fillna('').astype(str)
+
     # ── Build case-insensitive lookup ───────────────────────────────
     title_lookup = {title.lower(): title for title in indices.index}
-    all_titles = sorted(indices.index.tolist())
+    all_titles = sorted(set(indices.index.tolist()))
     logger.info("  ✓ Title lookup built — %d unique titles", len(title_lookup))
 
     _loaded = True

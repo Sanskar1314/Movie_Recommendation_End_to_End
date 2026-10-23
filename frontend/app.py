@@ -7,17 +7,19 @@ Two-page Streamlit app:
 """
 
 import os
+import logging
 import html as html_lib
+import urllib.parse
 import requests
 import streamlit as st
 from dotenv import load_dotenv
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
+from frontend.posters import poster_source
 
 load_dotenv()
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
-TMDB_API_KEY = os.getenv("TMDB_API_KEY", "")
-TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w500"
 
 st.set_page_config(
     page_title="MovieMind — AI Movie Recommendations",
@@ -49,7 +51,7 @@ def inject_css():
 /* Search */
 div[data-baseweb="input"] input, .stTextInput input {
     background:rgba(255,255,255,0.06) !important; border:1px solid rgba(255,255,255,0.1) !important;
-    border-radius:10px !important; color:#1a1a2e !important; font-size:1rem !important; padding:0.6rem 1rem !important;
+    border-radius:10px !important; color:#e5e5e5 !important; font-size:1rem !important; padding:0.6rem 1rem !important;
 }
 div[data-baseweb="input"] input:focus, .stTextInput input:focus {
     border-color:rgba(229,9,20,0.5) !important; box-shadow:0 0 16px rgba(229,9,20,0.1) !important;
@@ -61,7 +63,8 @@ div[data-baseweb="input"] input:focus, .stTextInput input:focus {
     color:rgba(255,255,255,0.7); font-size:0.9rem; cursor:pointer; transition:all 0.2s; text-decoration:none; margin-bottom:1rem; }
 .back-btn:hover { background:rgba(229,9,20,0.15); border-color:rgba(229,9,20,0.3); color:#fff; }
 
-/* Movie grid card */
+/* Movie grid card — wrapped in <a> link */
+.mgrid-link { text-decoration:none; color:inherit; display:block; }
 .mgrid-card { background:#181818; border-radius:8px; overflow:hidden; transition:all 0.3s cubic-bezier(0.4,0,0.2,1); cursor:pointer; }
 .mgrid-card:hover { transform:scale(1.05); box-shadow:0 12px 40px rgba(0,0,0,0.7); z-index:10; position:relative; }
 .mgrid-poster { width:100%; aspect-ratio:2/3; overflow:hidden; background:linear-gradient(135deg,#1e1e2e,#252540); display:flex; align-items:center; justify-content:center; }
@@ -119,28 +122,8 @@ div[data-baseweb="input"] input:focus, .stTextInput input:focus {
 /* Streamlit overrides */
 div[data-testid="stHorizontalBlock"] { gap:0.75rem; }
 
-/* Movie card buttons — styled as compact clickable cards */
-[data-testid="column"] .stButton > button {
-    width:100% !important; background:rgba(229,9,20,0.8) !important; color:#fff !important;
-    border:none !important; border-radius:0 0 8px 8px !important; padding:0.5rem 0.3rem !important;
-    font-size:0.75rem !important; font-weight:600 !important; cursor:pointer !important;
-    transition:all 0.2s ease !important; min-height:0 !important; margin-top:-8px !important; }
-[data-testid="column"] .stButton > button:hover {
-    background:rgba(229,9,20,1) !important; transform:scale(1.02) !important; }
-[data-testid="column"] .stButton > button p { margin:0 !important; }
 
-/* Back button — uses type=primary to differentiate from grid buttons */
-button[data-testid="stBaseButton-primary"] {
-    background:rgba(255,255,255,0.85) !important; color:#000 !important;
-    border:1px solid rgba(0,0,0,0.2) !important; border-radius:8px !important;
-    padding:0.5rem 1.5rem !important; font-size:0.9rem !important; margin-top:0 !important; }
-button[data-testid="stBaseButton-primary"] p {
-    color:#000 !important; }
-button[data-testid="stBaseButton-primary"]:hover {
-    background:rgba(229,9,20,0.9) !important; border-color:rgba(229,9,20,0.5) !important;
-    color:#fff !important; transform:none !important; }
-button[data-testid="stBaseButton-primary"]:hover p {
-    color:#fff !important; }
+
 </style>""", unsafe_allow_html=True)
 
 
@@ -153,20 +136,8 @@ def esc(text: str) -> str:
     return html_lib.escape(str(text))
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
 def fetch_poster_url(title: str) -> str | None:
-    if not TMDB_API_KEY:
-        return None
-    try:
-        resp = requests.get("https://api.themoviedb.org/3/search/movie",
-                            params={"api_key": TMDB_API_KEY, "query": title}, timeout=5)
-        resp.raise_for_status()
-        results = resp.json().get("results", [])
-        if results and results[0].get("poster_path"):
-            return f"{TMDB_IMAGE_BASE}{results[0]['poster_path']}"
-    except Exception:
-        pass
-    return None
+    return poster_source(title)
 
 
 @st.cache_data(ttl=600, show_spinner=False)
@@ -335,25 +306,28 @@ def render_home():
         st.markdown('<p style="color:rgba(255,255,255,0.3);font-size:0.8rem;text-align:center;margin-bottom:0.5rem;">'
                     '🔥 Popular Movies</p>', unsafe_allow_html=True)
 
-    # Render grid — entire card is clickable (button overlays card via CSS)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        posters = dict(zip(display_movies, pool.map(fetch_poster_url, display_movies)))
+
+    # Render grid — each card is a clickable <a> link using query params
     COLS = 6
     rows = [display_movies[i:i + COLS] for i in range(0, len(display_movies), COLS)]
     for row_movies in rows:
         cols = st.columns(COLS)
         for i, title in enumerate(row_movies):
             with cols[i]:
-                poster_url = fetch_poster_url(title)
+                poster_url = posters.get(title)
                 if poster_url:
                     poster_html = f'<img src="{poster_url}" alt="{esc(title)}" style="width:100%;aspect-ratio:2/3;object-fit:cover;display:block;border-radius:6px;">'
                 else:
                     poster_html = '<div style="width:100%;aspect-ratio:2/3;background:linear-gradient(135deg,#1e1e2e,#252540);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:2.5rem;opacity:0.2;">🎬</div>'
 
-                st.markdown(f'<div class="mgrid-card"><div class="mgrid-poster">{poster_html}</div>'
-                            f'<div class="mgrid-title">{esc(title)}</div></div>',
-                            unsafe_allow_html=True)
-                if st.button("▶ View", key=f"movie_{title}", use_container_width=True):
-                    navigate_to("detail", title)
-                    st.rerun()
+                movie_url = f"?page=detail&movie={urllib.parse.quote(title)}"
+                st.markdown(
+                    f'<a href="{movie_url}" target="_self" class="mgrid-link">'
+                    f'<div class="mgrid-card"><div class="mgrid-poster">{poster_html}</div>'
+                    f'<div class="mgrid-title">{esc(title)}</div></div></a>',
+                    unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -362,20 +336,16 @@ def render_home():
 def render_detail():
     render_header()
 
-    selected = st.session_state.get("selected_movie", "")
+    selected = st.query_params.get("movie", "")
     if not selected:
-        navigate_to("home")
+        st.query_params.clear()
         st.rerun()
         return
 
-    # Back button — wrapped in a container so CSS can style it differently
-    with st.container():
-        st.markdown('<div class="back-btn-row">', unsafe_allow_html=True)
-        if st.button("← Back to Browse", key="back_btn", type="primary"):
-            navigate_to("home")
-            st.rerun()
-            return
-        st.markdown('</div>', unsafe_allow_html=True)
+    # Back button — HTML link back to homepage
+    st.markdown(
+        '<a href="/" target="_self" class="back-btn">← Back to Browse</a>',
+        unsafe_allow_html=True)
 
     # Fetch recommendations
     with st.spinner("Finding the perfect movies for you…"):
@@ -424,7 +394,7 @@ def render_detail():
             if len(genre_movies) >= 2:
                 render_genre_row(genre_name, genre_movies)
 
-        # Clickable recommendation grid — click any card to see details
+        # Clickable recommendation grid — each card links to its detail page
         st.markdown('<div style="margin-top:1rem;"></div>', unsafe_allow_html=True)
         COLS = 6
         rec_rows = [recs[i:i + COLS] for i in range(0, len(recs), COLS)]
@@ -433,38 +403,131 @@ def render_detail():
             for i, movie in enumerate(row_movies):
                 with cols[i]:
                     t = movie.get("title", "Unknown")
-                    rating = movie.get("vote_average", 0)
-                    rating_val = f"{rating:.1f}" if rating > 0 else "N/A"
-                    star = "⭐" if rating >= 7 else "✦"
                     poster_url = fetch_poster_url(t)
                     if poster_url:
                         p_html = f'<img src="{poster_url}" alt="{esc(t)}" style="width:100%;aspect-ratio:2/3;object-fit:cover;display:block;border-radius:6px;">'
                     else:
                         p_html = '<div style="width:100%;aspect-ratio:2/3;background:linear-gradient(135deg,#1e1e2e,#252540);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:2.5rem;opacity:0.2;">🎬</div>'
-                    st.markdown(f'<div class="mgrid-card"><div class="mgrid-poster">{p_html}</div>'
-                                f'<div class="mgrid-title">{esc(t)}</div></div>',
-                                unsafe_allow_html=True)
-                    if st.button("▶ View", key=f"rec_{t}", use_container_width=True):
-                        navigate_to("detail", t)
-                        st.rerun()
+                    movie_url = f"?page=detail&movie={urllib.parse.quote(t)}"
+                    st.markdown(
+                        f'<a href="{movie_url}" target="_self" class="mgrid-link">'
+                        f'<div class="mgrid-card"><div class="mgrid-poster">{p_html}</div>'
+                        f'<div class="mgrid-title">{esc(t)}</div></div></a>',
+                        unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════════════════════════
 #  MAIN
 # ═══════════════════════════════════════════════════════════════════
+def personal_api(method, path, **kwargs):
+    response = requests.request(method, f"{BACKEND_URL}/personal{path}", timeout=30, **kwargs)
+    if not response.ok:
+        try:
+            detail = response.json().get("detail", "Request failed")
+        except ValueError:
+            detail = "API returned an invalid response. Check the backend logs."
+        raise ValueError(str(detail))
+    return response.json()
+
+
+def render_personal():
+    render_header()
+    st.subheader("For You")
+    st.caption("Rate movies to discover what people with similar tastes enjoyed. Local demo profiles are shared on this machine; use nicknames.")
+    try:
+        profiles = personal_api("GET", "/users")["users"]
+        with st.expander("Create a local profile", expanded=not profiles):
+            with st.form("create_profile"):
+                name = st.text_input("Profile nickname", max_chars=60)
+                if st.form_submit_button("Create profile"):
+                    created = personal_api("POST", "/users", json={"name": name})
+                    st.session_state["active_profile"] = created["id"]
+                    st.rerun()
+        if not profiles:
+            st.info("Create a profile to start rating. No sign-in is required.")
+            return
+        labels = {p["id"]: f'{p["name"]} (#{p["id"]})' for p in profiles}
+        user_id = st.selectbox("Your profile", list(labels), format_func=labels.get, key="active_profile")
+        history = personal_api("GET", f"/users/{user_id}/ratings")["ratings"]
+        st.caption(f"{len(history)} movies rated. Rate at least three with varied scores to find similar viewers; more overlap improves support.")
+        with st.expander("Rate a movie or update a rating", expanded=True):
+            query = st.text_input("Search MovieLens titles", placeholder="Toy Story, Inception…")
+            catalog = personal_api("GET", "/movies", params={"q": query, "n": 100})["movies"]
+            if catalog:
+                choices = {m["movie_id"]: f'{m["title"]} · #{m["movie_id"]}' for m in catalog}
+                movie_id = st.selectbox("Movie", list(choices), format_func=choices.get)
+                current = next((r["rating"] for r in history if r["movie_id"] == movie_id), 3.0)
+                with st.form(f"rating_{user_id}_{movie_id}"):
+                    rating = st.slider("Your rating (stars)", 0.5, 5.0, float(current), 0.5)
+                    if st.form_submit_button("Save rating"):
+                        personal_api("PUT", f"/users/{user_id}/ratings", json={"movie_id": movie_id, "rating": rating})
+                        st.rerun()
+            else:
+                st.info("No matching MovieLens titles. Try another search.")
+        with st.expander("Your saved ratings"):
+            if history:
+                st.dataframe([{"Movie": r["title"], "Stars": r["rating"]} for r in history], hide_index=True, use_container_width=True)
+            else:
+                st.info("No ratings yet. Suggestions below use community ratings.")
+        st.button("Refresh recommendations")
+        with st.spinner("Comparing movie ratings…"):
+            result = personal_api("GET", f"/users/{user_id}/recommendations", params={"n": 10})
+        strategy = result["strategy"]
+        if strategy == "popularity":
+            st.info("Community picks: there is not enough shared rating evidence for personal recommendations yet.")
+        elif strategy == "mixed":
+            st.info("Personal recommendations with community picks where neighbor evidence is insufficient. Each result shows its source.")
+        elif strategy == "collaborative":
+            st.caption(f'Based on rating patterns from {result["neighbor_count"]} similar viewers.')
+        if not result["recommendations"]:
+            st.info("No unseen movies with rating evidence remain.")
+        recommendations = result["recommendations"]
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            sources = list(pool.map(
+                lambda movie: poster_source(movie["title"], movie.get("tmdb_id"), movie.get("poster_url", "")),
+                recommendations,
+            ))
+        for movie, source in zip(recommendations, sources):
+            poster, details = st.columns([1, 5])
+            with poster:
+                if source:
+                    st.markdown(f'<img src="{source}" alt="{esc(movie["title"])} poster" width="90">', unsafe_allow_html=True)
+                else:
+                    st.caption("🎬 Poster unavailable")
+            with details:
+                st.write(f'**{movie["title"]}**')
+                st.caption(movie["genres"])
+                source = "Similar viewers" if movie["source"] == "collaborative" else "Community rating fallback"
+                st.write(f'{source} · score {movie["score"]:.2f}/5 · {movie["rating_count"]} ratings')
+                st.caption(f'MovieLens ID {movie["movie_id"]}. Scores are estimates, not guaranteed enjoyment.')
+    except (requests.RequestException, ValueError) as exc:
+        logging.getLogger(__name__).warning("Personal recommendations request failed: %s", exc)
+        if isinstance(exc, requests.ConnectionError):
+            st.error("Cannot connect to the recommendation service. It may still be starting. Wait a moment, then retry.")
+        elif isinstance(exc, requests.Timeout):
+            st.error("The recommendation service took too long to respond. Please retry.")
+        else:
+            st.error(f"Personal recommendations unavailable: {exc}")
+        if st.button("Retry connection"):
+            st.rerun()
+
+
 def main():
     inject_css()
 
-    if "page" not in st.session_state:
-        st.session_state["page"] = "home"
+    # Read navigation from URL query params
+    page = st.query_params.get("page", "home")
 
-    page = st.session_state["page"]
     if page == "detail":
         render_detail()
     else:
-        render_home()
+        section = st.radio("Explore MovieMind", ["For You", "Browse Movies"], horizontal=True)
+        if section == "For You":
+            render_personal()
+        else:
+            render_home()
 
-    st.markdown('<div class="mm-footer">Built with ♥ using FastAPI &amp; Streamlit · Powered by TF-IDF Cosine Similarity</div>',
+    st.markdown('<div class="mm-footer">Built with ♥ using FastAPI &amp; Streamlit · Personalized with Collaborative Filtering · More Like This uses TF-IDF</div>',
                 unsafe_allow_html=True)
 
 

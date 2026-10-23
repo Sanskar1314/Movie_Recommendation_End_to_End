@@ -48,3 +48,5 @@ class HealthResponse(BaseModel):
 
     status: str = "healthy"
     total_movies: int = 0
+    personal_ready: bool = False
+    legacy_ready: bool = False

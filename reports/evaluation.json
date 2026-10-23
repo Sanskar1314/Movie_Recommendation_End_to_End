@@ -1,0 +1,123 @@
+{
+  "dataset": "MovieLens latest-small",
+  "ratings_sha256": "2d0cd09f050de47d821972388a01fd3568fe6ecdd155f9b7f63abf509693561b",
+  "seed": 42,
+  "split": "per-user random 20%, at least 3 train ratings; not a temporal split",
+  "train_ratings": 80896,
+  "test_ratings": 19940,
+  "users": 610,
+  "catalog_movies": 9742,
+  "neighbors": 40,
+  "min_overlap": 3,
+  "similarity_shrinkage": 10,
+  "minimum_candidate_support": 2,
+  "ranking": "full unseen rated-in-training catalog; relevant = held-out rating >= 4; macro averages",
+  "results": {
+    "collaborative_with_fallback": {
+      "rmse": 0.9267451043141339,
+      "mae": 0.7113908995834218,
+      "precision@10": 0.02671118530884808,
+      "recall@10": 0.015694011756994964,
+      "ndcg@10": 0.03516340554193199,
+      "ranking_users": 599,
+      "held_out_cf_coverage": 0.7063691073219659
+    },
+    "popularity": {
+      "rmse": 0.9599338222375129,
+      "mae": 0.7476679187328713,
+      "precision@10": 0.08731218697829717,
+      "recall@10": 0.06768326315277172,
+      "ndcg@10": 0.10545681000451688,
+      "ranking_users": 599
+    }
+  },
+  "personalization_examples": [
+    {
+      "user_id": 1,
+      "movie_ids": [
+        356,
+        318,
+        2959,
+        858,
+        2028,
+        4993,
+        5952,
+        4226,
+        1704,
+        7361
+      ],
+      "sources": [
+        "collaborative",
+        "collaborative",
+        "collaborative",
+        "collaborative",
+        "collaborative",
+        "collaborative",
+        "collaborative",
+        "collaborative",
+        "collaborative",
+        "collaborative"
+      ]
+    },
+    {
+      "user_id": 2,
+      "movie_ids": [
+        1222,
+        551,
+        1278,
+        3671,
+        3000,
+        2951,
+        1274,
+        1129,
+        3703,
+        3740
+      ],
+      "sources": [
+        "collaborative",
+        "collaborative",
+        "collaborative",
+        "collaborative",
+        "collaborative",
+        "collaborative",
+        "collaborative",
+        "collaborative",
+        "collaborative",
+        "collaborative"
+      ]
+    },
+    {
+      "user_id": 3,
+      "movie_ids": [
+        1283,
+        215,
+        3087,
+        1178,
+        3201,
+        475,
+        3040,
+        1223,
+        1235,
+        3468
+      ],
+      "sources": [
+        "collaborative",
+        "collaborative",
+        "collaborative",
+        "collaborative",
+        "collaborative",
+        "popularity",
+        "collaborative",
+        "collaborative",
+        "collaborative",
+        "popularity"
+      ]
+    }
+  ],
+  "limitations": [
+    "Single development split, not a temporal or shared research benchmark.",
+    "Missing observed relevance is not proof of dislike.",
+    "CF includes explicitly labeled popularity fallback; rating metrics cover both sources.",
+    "MovieLens is historical and self-selected; no production-quality claim."
+  ]
+}
